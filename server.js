@@ -74,7 +74,10 @@ function mountRoutes() {
   const notificationsRoutes = require('./routes/notifications');
   const linkRoutes = require('./routes/link');
 
+  // Mount under /api/* (preferred) and also mount auth under /auth for backwards compatibility
   app.use('/api/auth', authRoutes);
+  app.use('/auth', authRoutes); // tolerant mount: handles requests that omit the /api prefix
+
   app.use('/api/users', userRoutes);
   app.use('/api/community', communityRoutes);
   app.use('/api/works', worksRoutes);
