@@ -10,7 +10,6 @@ const { setIO } = require('./realtime/io');
 
 const app = express();
 const server = http.createServer(app);
-
 /* =========================
    CORS (FIXED & SIMPLIFIED)
    ========================= */
@@ -24,44 +23,35 @@ const allowedOrigins = [
 ];
 
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) {
-      return callback(null, true);
-    }
-
+  origin: function (origin, callback) {
+    // Allow requests with no origin (Postman, mobile apps)
+    if (!origin) return callback(null, true);
+    
     // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-
-    // Check for wildcard Netlify/Vercel domains
+    
+    // Check wildcard domains
     try {
       const url = new URL(origin);
-      if (
-        url.hostname.endsWith('.netlify.app') ||
-        url.hostname.endsWith('.vercel.app')
-      ) {
+      if (url.hostname.endsWith('.netlify.app') || url.hostname.endsWith('.vercel.app')) {
         return callback(null, true);
       }
-    } catch (err) {
-      console.error('Invalid origin URL:', origin);
-    }
-
-    // Reject with null instead of Error
+    } catch (e) {}
+    
+    // Log blocked origins for debugging
     console.warn('CORS blocked origin:', origin);
-    return callback(null, false);
+    callback(new Error('Not allowed by CORS'));
   },
-  credentials: true,
+  credentials: true, // Must match frontend credentials: 'include'
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
-  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
+  exposedHeaders: ['x-auth-token'],
+  optionsSuccessStatus: 200,
 };
 
-// Apply CORS middleware
 app.use(cors(corsOptions));
-
-// Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 
 /* =========================
