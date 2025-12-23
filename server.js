@@ -46,6 +46,32 @@ app.use(cors(corsOptions));
 // Ensure explicit handling for preflight OPTIONS requests
 app.options('*', cors(corsOptions));
 
+// Ensure CORS headers are present even if later middleware errors or a redirect occurs.
+// Also respond early to OPTIONS requests with a 204 and proper headers.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  try {
+    corsOrigin(origin, (err, allow) => {
+      if (allow && origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Access-Control-Allow-Credentials', 'true');
+        res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, X-Requested-With');
+      }
+
+      if (req.method === 'OPTIONS') {
+        console.log('CORS preflight for', req.path, 'origin:', origin, 'allow:', !!allow);
+        return res.sendStatus(204);
+      }
+
+      next();
+    });
+  } catch (e) {
+    // On any error, just continue and let other middleware handle it
+    next();
+  }
+});
+
 app.use(express.json());
 
 // Static file hosting for uploaded images
