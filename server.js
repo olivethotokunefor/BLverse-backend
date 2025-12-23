@@ -12,10 +12,23 @@ const app = express();
 const server = http.createServer(app);
 
 // Middleware
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true,
-}));
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'https://bl-verse.netlify.app',
+  'http://bl-verse.netlify.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+const corsOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true);
+  if (allowedOrigins.includes(origin)) return callback(null, true);
+  try {
+    const host = new URL(origin).hostname;
+    if (/\.netlify\.app$/.test(host)) return callback(null, true);
+  } catch {}
+  return callback(null, false);
+};
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
 // Static file hosting for uploaded images
@@ -84,7 +97,7 @@ app.use((err, req, res, next) => {
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: corsOrigin,
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     credentials: true,
   },
