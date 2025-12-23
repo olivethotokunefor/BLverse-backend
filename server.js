@@ -15,32 +15,53 @@ const server = http.createServer(app);
    CORS (FIXED & SIMPLIFIED)
    ========================= */
 
+const allowedOrigins = [
+  'https://bl-verse.netlify.app',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+];
+
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
 
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Check for wildcard Netlify/Vercel domains
     try {
-      const hostname = new URL(origin).hostname;
-
+      const url = new URL(origin);
       if (
-        hostname === 'bl-verse.netlify.app' ||
-        hostname.endsWith('.netlify.app') ||
-        hostname.endsWith('.vercel.app') ||
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1'
+        url.hostname.endsWith('.netlify.app') ||
+        url.hostname.endsWith('.vercel.app')
       ) {
         return callback(null, true);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error('Invalid origin URL:', origin);
+    }
 
-    return callback(new Error('Not allowed by CORS'));
+    // Reject with null instead of Error
+    console.warn('CORS blocked origin:', origin);
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
+  optionsSuccessStatus: 200, // Some legacy browsers choke on 204
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 
 /* =========================
