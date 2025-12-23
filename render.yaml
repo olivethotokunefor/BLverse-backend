@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: blverse-backend
+    env: node
+    rootDir: backend
+    plan: free
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "18"
+      - key: CLIENT_URL
+        value: "https://bl-verse.netlify.app"
+      - key: MONGODB_URI
+        fromSecret: mongodb_uri
+      - key: JWT_SECRET
+        fromSecret: jwt_secret
