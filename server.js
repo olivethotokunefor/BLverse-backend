@@ -34,7 +34,18 @@ const corsOrigin = (origin, callback) => {
   } catch {}
   return callback(null, false);
 };
-app.use(cors({ origin: corsOrigin, credentials: true }));
+
+// Central CORS options used for middleware and explicit preflight responses
+const corsOptions = {
+  origin: corsOrigin,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'X-Requested-With'],
+};
+app.use(cors(corsOptions));
+// Ensure explicit handling for preflight OPTIONS requests
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 // Static file hosting for uploaded images
