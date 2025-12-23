@@ -12,8 +12,13 @@ const app = express();
 const server = http.createServer(app);
 
 // Middleware
+const extraOrigins = (process.env.CLIENT_URLS || '')
+  .split(',')
+  .map((s) => s && s.trim())
+  .filter(Boolean);
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  ...extraOrigins,
   'https://bl-verse.netlify.app',
   'http://bl-verse.netlify.app',
   'http://localhost:5173',
@@ -25,6 +30,7 @@ const corsOrigin = (origin, callback) => {
   try {
     const host = new URL(origin).hostname;
     if (/\.netlify\.app$/.test(host)) return callback(null, true);
+    if (/\.vercel\.app$/.test(host)) return callback(null, true);
   } catch {}
   return callback(null, false);
 };
