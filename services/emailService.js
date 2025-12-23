@@ -1,0 +1,77 @@
+const nodemailer = require("nodemailer");
+const path = require("path");
+const fs = require("fs");
+const handlebars = require("handlebars");
+
+// Create transporter (Gmail SMTP with App Password)
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
+  pool: true,
+  auth: {
+    user: process.env.EMAIL_USERNAME,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
+
+// Helper to load & compile template
+const loadTemplate = (templateName, context) => {
+  const filePath = path.join(__dirname, "../views/emails", `${templateName}.handlebars`);
+  const source = fs.readFileSync(filePath, "utf8");
+  const template = handlebars.compile(source);
+  return template(context);
+};
+
+// Send verification email
+exports.sendVerificationEmail = async (email, token) => {
+  const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
+
+  const html = loadTemplate("verification", {
+    verificationUrl,
+    year: new Date().getFullYear(),
+  });
+
+  const mailOptions = {
+    from: `"BLverse" <${process.env.EMAIL_USERNAME}>`,
+    to: email,
+    subject: "Verify Your Email Address",
+    html,
+  };
+
+  try {
+    // verify connection configuration for clearer errors
+    await transporter.verify();
+    await transporter.sendMail(mailOptions);
+    return true;
+  } catch (error) {
+    console.error("Email error:", error);
+    return false;
+  }
+};
+
+// Send password reset email
+exports.sendPasswordResetEmail = async (email, token) => {
+  const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+
+  const html = loadTemplate("passwordReset", {
+    resetUrl,
+    year: new Date().getFullYear(),
+  });
+
+  const mailOptions = {
+    from: `"BLverse" <${process.env.EMAIL_USERNAME}>`,
+    to: email,
+    subject: "Password Reset Request",
+    html,
+  };
+
+  try {
+    await transporter.verify();
+    await transporter.sendMail(mailOptions);
+    return true;
+  } catch (error) {
+    console.error("Email error:", error);
+    return false;
+  }
+};
