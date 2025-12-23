@@ -11,77 +11,59 @@ const { setIO } = require('./realtime/io');
 const app = express();
 const server = http.createServer(app);
 
-// Middleware
-const extraOrigins = (process.env.CLIENT_URLS || '')
-  .split(',')
-  .map((s) => s && s.trim())
-  .filter(Boolean);
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  ...extraOrigins,
-  'https://bl-verse.netlify.app',
-  'http://bl-verse.netlify.app',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-].filter(Boolean);
-const corsOrigin = (origin, callback) => {
-  if (!origin) return callback(null, true);
-  if (allowedOrigins.includes(origin)) return callback(null, true);
-  try {
-    const host = new URL(origin).hostname;
-    if (/\.netlify\.app$/.test(host)) return callback(null, true);
-    if (/\.vercel\.app$/.test(host)) return callback(null, true);
-  } catch {}
-  return callback(null, false);
-};
+/* =========================
+   CORS (FIXED & SIMPLIFIED)
+   ========================= */
 
-// Central CORS options used for middleware and explicit preflight responses
 const corsOptions = {
-  origin: corsOrigin,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+
+    try {
+      const hostname = new URL(origin).hostname;
+
+      if (
+        hostname === 'bl-verse.netlify.app' ||
+        hostname.endsWith('.netlify.app') ||
+        hostname.endsWith('.vercel.app') ||
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1'
+      ) {
+        return callback(null, true);
+      }
+    } catch (err) {}
+
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
 };
+
 app.use(cors(corsOptions));
-// Ensure explicit handling for preflight OPTIONS requests
 app.options('*', cors(corsOptions));
 
-// Ensure CORS headers are present even if later middleware errors or a redirect occurs.
-// Also respond early to OPTIONS requests with a 204 and proper headers.
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  try {
-    corsOrigin(origin, (err, allow) => {
-      if (allow && origin) {
-        res.header('Access-Control-Allow-Origin', origin);
-        res.header('Access-Control-Allow-Credentials', 'true');
-        res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, X-Requested-With');
-      }
-
-      if (req.method === 'OPTIONS') {
-        console.log('CORS preflight for', req.path, 'origin:', origin, 'allow:', !!allow);
-        return res.sendStatus(204);
-      }
-
-      next();
-    });
-  } catch (e) {
-    // On any error, just continue and let other middleware handle it
-    next();
-  }
-});
+/* =========================
+   MIDDLEWARE
+   ========================= */
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Static file hosting for uploaded images
+/* =========================
+   STATIC UPLOADS
+   ========================= */
+
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsDir));
 
-// Database connection
+/* =========================
+   DATABASE
+   ========================= */
+
 mongoose.set('bufferCommands', false);
 
 mongoose.connection.on('connected', () => {
@@ -93,6 +75,10 @@ mongoose.connection.on('error', (err) => {
 mongoose.connection.on('disconnected', () => {
   console.error('MongoDB disconnected');
 });
+
+/* =========================
+   ROUTES
+   ========================= */
 
 function mountRoutes() {
   const authRoutes = require('./routes/auth');
@@ -111,9 +97,8 @@ function mountRoutes() {
   const notificationsRoutes = require('./routes/notifications');
   const linkRoutes = require('./routes/link');
 
-  // Mount under /api/* (preferred) and also mount auth under /auth for backwards compatibility
   app.use('/api/auth', authRoutes);
-  app.use('/auth', authRoutes); // tolerant mount: handles requests that omit the /api prefix
+  app.use('/auth', authRoutes); // backward compatibility
 
   app.use('/api/users', userRoutes);
   app.use('/api/community', communityRoutes);
@@ -131,38 +116,49 @@ function mountRoutes() {
   app.use('/api/link', linkRoutes);
 }
 
-// Basic route
+/* =========================
+   HEALTH CHECK
+   ========================= */
+
 app.get('/', (req, res) => {
   res.send('BLverse API is running');
 });
 
-// Error handling middleware
+/* =========================
+   ERROR HANDLER
+   ========================= */
+
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).send('Something broke!');
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-// Socket.IO setup
+/* =========================
+   SOCKET.IO
+   ========================= */
+
 const io = new Server(server, {
   cors: {
-    origin: corsOrigin,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    origin: corsOptions.origin,
     credentials: true,
   },
 });
+
 setIO(io);
 
 io.on('connection', (socket) => {
-  // Token can be provided as handshake auth or query; controllers will emit to rooms
-  const token = (socket.handshake.auth && socket.handshake.auth.token) || (socket.handshake.query && socket.handshake.query.token);
-  // We don't verify token here; REST endpoints enforce auth and emit to rooms/users by id
   socket.on('join_conversation', (conversationId) => {
     if (conversationId) socket.join(String(conversationId));
   });
+
   socket.on('join_user', (userId) => {
     if (userId) socket.join(String(userId));
   });
 });
+
+/* =========================
+   SERVER START
+   ========================= */
 
 const PORT = process.env.PORT || 5000;
 
@@ -173,11 +169,10 @@ async function start() {
       serverSelectionTimeoutMS: 10000,
     });
 
-    // Only mount routes after DB connection so models don't buffer queries during startup
     mountRoutes();
 
     server.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+      console.log(`Server running on port ${PORT}`);
     });
   } catch (err) {
     console.error('Failed to start server:', err);
