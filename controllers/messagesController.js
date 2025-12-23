@@ -1,5 +1,33 @@
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const mongoose = require('mongoose');
+const cloudinary = require('cloudinary').v2;
+
+// Configure Cloudinary if env provided
+try {
+  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
+  }
+} catch {}
+
+function uploadBufferToCloudinary(buffer, filename, mimetype) {
+  return new Promise((resolve, reject) => {
+    const folder = process.env.CLOUDINARY_FOLDER || 'blverse/messages';
+    const stream = cloudinary.uploader.upload_stream(
+      { folder, resource_type: 'auto', public_id: filename.replace(/[^a-z0-9-_]/gi, '_') },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const User = require('../models/User');
@@ -48,6 +76,50 @@ exports.stream = (req, res) => {
     req.on('close', () => removeClient(userId, res));
   } catch (e) {
     res.status(401).end();
+  }
+};
+
+// ----- GridFS helpers -----
+let gridBucket = null;
+function getGridBucket() {
+  const db = mongoose.connection && mongoose.connection.db;
+  if (!db) throw new Error('DB not ready');
+  if (!gridBucket) {
+    gridBucket = new mongoose.mongo.GridFSBucket(db, { bucketName: 'media' });
+  }
+  return gridBucket;
+}
+
+async function saveBufferToGridFS(filename, contentType, buffer) {
+  const bucket = getGridBucket();
+  return new Promise((resolve, reject) => {
+    const uploadStream = bucket.openUploadStream(filename, { contentType });
+    uploadStream.on('error', reject);
+    uploadStream.on('finish', () => resolve(uploadStream.id));
+    uploadStream.end(buffer);
+  });
+}
+
+// GET /api/messages/media/:id
+exports.getMedia = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const bucket = getGridBucket();
+    const _id = new mongoose.Types.ObjectId(id);
+    const files = await bucket.find({ _id }).toArray();
+    if (!files || files.length === 0) return res.status(404).json({ message: 'Not found' });
+    const file = files[0];
+    if (file.contentType) res.setHeader('Content-Type', file.contentType);
+    if (req.query.download === '1') {
+      const safeName = (file.filename || 'download').replace(/[^a-zA-Z0-9._-]/g, '_');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    }
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    const stream = bucket.openDownloadStream(_id);
+    stream.on('error', () => res.status(404).end());
+    stream.pipe(res);
+  } catch (e) {
+    return res.status(404).json({ message: 'Not found' });
   }
 };
 
@@ -274,7 +346,30 @@ exports.sendMedia = async (req, res) => {
     const isImage = req.file.mimetype.startsWith('image/');
     const isAudio = req.file.mimetype.startsWith('audio/');
     const type = isImage ? 'image' : isAudio ? 'audio' : 'text';
-    const mediaUrl = `/uploads/${req.file.filename}`;
+    let mediaUrl = '';
+    // Try Cloudinary first if configured
+    let usedCloudinary = false;
+    if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+      try {
+        const base = path.basename(req.file.originalname || 'upload', path.extname(req.file.originalname || ''));
+        const filename = `${Date.now()}_${base}`;
+        const result = await uploadBufferToCloudinary(req.file.buffer, filename, req.file.mimetype);
+        if (result && result.secure_url) {
+          mediaUrl = result.secure_url;
+          usedCloudinary = true;
+        }
+      } catch (e) {
+        // fall through to GridFS
+      }
+    }
+    if (!usedCloudinary) {
+      // Persist file to MongoDB GridFS
+      const base = path.basename(req.file.originalname || 'upload', path.extname(req.file.originalname || ''))
+        .replace(/[^a-z0-9-_]/gi, '_');
+      const filename = `${Date.now()}_${base}${path.extname(req.file.originalname || '')}`;
+      const fileId = await saveBufferToGridFS(filename, req.file.mimetype, req.file.buffer);
+      mediaUrl = `/api/messages/media/${String(fileId)}`;
+    }
 
     const convo = await ensureConversation(req.user.id, otherUserId);
     const msg = await Message.create({

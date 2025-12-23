@@ -640,31 +640,88 @@ exports.attachPostImage = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: 'Image is required' });
     }
-    const url = `/uploads/${req.file.filename}`;
-    post.mediaUrl = url;
-    await post.save();
 
-    const mongoUser = await User.findById(req.user.id).select('username profile');
-    const response = {
-      _id: post._id,
-      user: {
-        _id: String(req.user.id),
-        username: mongoUser?.username || 'Anonymous',
-        profile: {
-          fullName: mongoUser?.profile?.fullName || undefined,
-          bio: mongoUser?.profile?.bio || undefined,
-          avatar: mongoUser?.profile?.avatar || undefined,
-          location: mongoUser?.profile?.location || undefined,
+    // Upload to Cloudinary if configured
+    try {
+      const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, CLOUDINARY_FOLDER_POSTS } = process.env;
+      if (!(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET)) {
+        return res.status(500).json({ message: 'Cloud storage not configured' });
+      }
+
+      const cloudinary = require('cloudinary').v2;
+      try {
+        cloudinary.config({
+          cloud_name: CLOUDINARY_CLOUD_NAME,
+          api_key: CLOUDINARY_API_KEY,
+          api_secret: CLOUDINARY_API_SECRET,
+          secure: true,
+        });
+      } catch (e) {
+        // ignore config errors; we'll try upload and handle failures
+      }
+
+      const path = require('path');
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      const base = String(path.basename(req.file.originalname || 'upload', ext)).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const publicId = `${Date.now()}_${base}`;
+      const folder = CLOUDINARY_FOLDER_POSTS || 'blverse/community';
+
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream({ folder, resource_type: 'image', public_id: publicId }, (err, data) => (err ? reject(err) : resolve(data)));
+        stream.end(req.file.buffer);
+      });
+
+      if (!result || !result.secure_url) {
+        throw new Error('Cloudinary upload failed');
+      }
+
+      // Optionally persist to Media collection for metadata
+      try {
+        const Media = require('../models/Media');
+        await Media.create({
+          url: result.secure_url,
+          publicId: result.public_id,
+          resourceType: result.resource_type || 'image',
+          format: result.format || '',
+          bytes: result.bytes || 0,
+          duration: result.duration || 0,
+          width: result.width || 0,
+          height: result.height || 0,
+          createdBy: req.user ? req.user.id : undefined,
+        });
+      } catch (e) {
+        console.warn('Failed to create Media document:', e && e.message ? e.message : e);
+      }
+
+      post.mediaUrl = result.secure_url;
+      await post.save();
+
+      const mongoUser = await User.findById(req.user.id).select('username profile');
+      const response = {
+        _id: post._id,
+        user: {
+          _id: String(req.user.id),
+          username: mongoUser?.username || 'Anonymous',
+          profile: {
+            fullName: mongoUser?.profile?.fullName || undefined,
+            bio: mongoUser?.profile?.bio || undefined,
+            avatar: mongoUser?.profile?.avatar || undefined,
+            location: mongoUser?.profile?.location || undefined,
+          },
         },
-      },
-      content: post.content,
-      tags: post.tags,
-      likesCount: post.likesCount,
-      createdAt: post.createdAt?.toISOString() || new Date().toISOString(),
-      mediaUrl: post.mediaUrl,
-    };
-    broadcast('post_updated', response);
-    return res.json(response);
+        content: post.content,
+        tags: post.tags,
+        likesCount: post.likesCount,
+        createdAt: post.createdAt?.toISOString() || new Date().toISOString(),
+        mediaUrl: post.mediaUrl,
+      };
+      broadcast('post_updated', response);
+      return res.json(response);
+    } catch (err) {
+      console.error('Attach post image (cloud) error:', err);
+      const msg = (err && err.message) || 'Upload failed';
+      return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Upload failed' });
+    }
   } catch (error) {
     console.error('Attach post image error:', error);
     const msg = (error && error.message) || 'Server error';

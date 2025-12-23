@@ -22,15 +22,8 @@ const communityController = require('../controllers/communityController');
 const multer = require('multer');
 const path = require('path');
 
-// Multer setup for image uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads')),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const base = path.basename(file.originalname, ext).replace(/[^a-z0-9-_]/gi, '_');
-    cb(null, `${Date.now()}_${base}${ext.toLowerCase()}`);
-  },
-});
+// Multer setup for image uploads: use memory storage so we can upload to Cloudinary/GridFS
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'];

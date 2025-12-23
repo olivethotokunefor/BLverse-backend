@@ -5,6 +5,33 @@ const WorkBookmark = require('../models/WorkBookmark');
 const WorkHit = require('../models/WorkHit');
 const jwt = require('jsonwebtoken');
 const { createNotification } = require('./notificationsController');
+const cloudinary = require('cloudinary').v2;
+
+// Configure Cloudinary if env provided
+try {
+  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
+  }
+} catch {}
+
+function uploadCoverBufferToCloudinary(buffer, filename) {
+  return new Promise((resolve, reject) => {
+    const folder = process.env.CLOUDINARY_FOLDER_WORKS || 'blverse/works';
+    const stream = cloudinary.uploader.upload_stream(
+      { folder, resource_type: 'auto', public_id: filename.replace(/[^a-z0-9-_]/gi, '_') },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+}
 
 function parseCsv(val) {
   if (!val) return [];
@@ -299,8 +326,14 @@ exports.facets = async (req, res) => {
 exports.uploadCover = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-    // File is stored under /uploads and served statically
-    const url = `/uploads/${req.file.filename}`;
+    // Upload to Cloudinary and return hosted URL
+    if (!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET)) {
+      return res.status(500).json({ message: 'Image storage not configured' });
+    }
+    const orig = req.file.originalname || 'cover.jpg';
+    const base = orig.split('.').slice(0, -1).join('.') || 'cover';
+    const result = await uploadCoverBufferToCloudinary(req.file.buffer, `${Date.now()}_${base}`);
+    const url = result?.secure_url || '';
     return res.status(201).json({ url });
   } catch (err) {
     console.error('uploadCover error:', err);

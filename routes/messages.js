@@ -24,20 +24,19 @@ const {
 router.get('/stream', stream);
 
 // Multer for media uploads (images and audio)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads')),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '';
-    const base = path.basename(file.originalname, ext).replace(/[^a-z0-9-_]/gi, '_');
-    cb(null, `${Date.now()}_${base}${ext.toLowerCase()}`);
-  },
-});
+// Use memory storage so we can persist files to MongoDB GridFS
+const storage = multer.memoryStorage();
 const fileFilter = (req, file, cb) => {
   const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mpeg', 'audio/mp3', 'audio/webm', 'audio/ogg', 'audio/wav'];
   if (allowed.includes(file.mimetype)) cb(null, true);
   else cb(new Error('Unsupported file type'));
 };
 const upload = multer({ storage, fileFilter, limits: { fileSize: 25 * 1024 * 1024 } });
+
+const { getMedia } = require('../controllers/messagesController');
+
+// Public media fetch (GridFS stream)
+router.get('/media/:id', getMedia);
 
 // Authenticated routes
 router.use(protect);

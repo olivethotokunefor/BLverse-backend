@@ -6,7 +6,8 @@ const { protect } = require('../middleware/auth');
 const { listWorks, getWork, getChapter, giveKudos, toggleBookmark, createWork, addChapter, facets, uploadCover, listChapters, getEntireWork, updateWork, deleteWork, updateChapter, deleteChapter, recordHit } = require('../controllers/worksController');
 const { listChapterComments, createChapterComment, toggleWorkCommentLike, updateWorkComment, deleteWorkComment } = require('../controllers/workCommentsController');
 
-const upload = multer({ dest: path.resolve(__dirname, '..', 'uploads') });
+// Use memory storage so controller can upload to Cloudinary/GridFS
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Public browsing
 router.get('/facets', facets);

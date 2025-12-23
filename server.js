@@ -62,6 +62,7 @@ function mountRoutes() {
   const userRoutes = require('./routes/users');
   const communityRoutes = require('./routes/community');
   const worksRoutes = require('./routes/works');
+  const mediaRoutes = require('./routes/media');
   const readingProgressRoutes = require('./routes/readingProgress');
   const dramaRoutes = require('./routes/dramas');
   const storyRoutes = require('./routes/stories');
@@ -77,6 +78,7 @@ function mountRoutes() {
   app.use('/api/users', userRoutes);
   app.use('/api/community', communityRoutes);
   app.use('/api/works', worksRoutes);
+  app.use('/api/media', mediaRoutes);
   app.use('/api/reading-progress', readingProgressRoutes);
   app.use('/api/dramas', dramaRoutes);
   app.use('/api/stories', storyRoutes);
