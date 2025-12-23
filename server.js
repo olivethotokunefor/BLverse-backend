@@ -10,49 +10,40 @@ const { setIO } = require('./realtime/io');
 
 const app = express();
 const server = http.createServer(app);
+
 /* =========================
-   CORS (FIXED & SIMPLIFIED)
+   CORS (PXXL-SPECIFIC FIX)
    ========================= */
 
-const allowedOrigins = [
-  'https://bl-verse.netlify.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5173',
-];
+// Critical for pxxl reverse proxy
+app.set('trust proxy', true);
+app.enable('trust proxy');
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (Postman, mobile apps)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is in allowed list
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    
-    // Check wildcard domains
-    try {
-      const url = new URL(origin);
-      if (url.hostname.endsWith('.netlify.app') || url.hostname.endsWith('.vercel.app')) {
-        return callback(null, true);
-      }
-    } catch (e) {}
-    
-    // Log blocked origins for debugging
-    console.warn('CORS blocked origin:', origin);
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true, // Must match frontend credentials: 'include'
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
-  exposedHeaders: ['x-auth-token'],
-  optionsSuccessStatus: 200,
-};
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+// Pre-flight and CORS handler
+app.use((req, res, next) => {
+  const origin = req.headers.origin || req.headers.referer;
+  
+  // Allow your frontend
+  if (origin && origin.includes('bl-verse.netlify.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
+  res.setHeader('Access-Control-Expose-Headers', 'x-auth-token');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 /* =========================
    MIDDLEWARE
@@ -60,6 +51,12 @@ app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Debug middleware (remove after fixing)
+app.use((req, res, next) => {
+  console.log(`📨 ${req.method} ${req.path} from ${req.headers.origin || 'no origin'}`);
+  next();
+});
 
 /* =========================
    STATIC UPLOADS
@@ -78,13 +75,13 @@ app.use('/uploads', express.static(uploadsDir));
 mongoose.set('bufferCommands', false);
 
 mongoose.connection.on('connected', () => {
-  console.log('Connected to MongoDB');
+  console.log('✅ Connected to MongoDB');
 });
 mongoose.connection.on('error', (err) => {
-  console.error('MongoDB connection error:', err);
+  console.error('❌ MongoDB connection error:', err);
 });
 mongoose.connection.on('disconnected', () => {
-  console.error('MongoDB disconnected');
+  console.error('⚠️ MongoDB disconnected');
 });
 
 /* =========================
@@ -132,7 +129,11 @@ function mountRoutes() {
    ========================= */
 
 app.get('/', (req, res) => {
-  res.send('BLverse API is running');
+  res.json({ 
+    status: 'running',
+    message: 'BLverse API is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 /* =========================
@@ -140,7 +141,7 @@ app.get('/', (req, res) => {
    ========================= */
 
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error('❌ Error:', err.stack);
   res.status(500).json({ error: 'Internal server error' });
 });
 
@@ -152,18 +153,25 @@ const io = new Server(server, {
   cors: {
     origin: corsOptions.origin,
     credentials: true,
+    methods: ['GET', 'POST'],
   },
 });
 
 setIO(io);
 
 io.on('connection', (socket) => {
+  console.log('🔌 Socket connected:', socket.id);
+  
   socket.on('join_conversation', (conversationId) => {
     if (conversationId) socket.join(String(conversationId));
   });
 
   socket.on('join_user', (userId) => {
     if (userId) socket.join(String(userId));
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('🔌 Socket disconnected:', socket.id);
   });
 });
 
@@ -183,10 +191,11 @@ async function start() {
     mountRoutes();
 
     server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (err) {
-    console.error('Failed to start server:', err);
+    console.error('❌ Failed to start server:', err);
     process.exit(1);
   }
 }
