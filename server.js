@@ -12,42 +12,41 @@ const app = express();
 const server = http.createServer(app);
 
 /* =========================
-   CORS (SIMPLIFIED - NO CREDENTIALS)
+   TRUST PROXY - MUST BE FIRST
    ========================= */
-
 app.set('trust proxy', true);
+app.enable('trust proxy');
 
+/* =========================
+   RAW CORS HANDLER - BEFORE EVERYTHING
+   ========================= */
 app.use((req, res, next) => {
+  // Set CORS headers for ALL requests
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
   res.setHeader('Access-Control-Expose-Headers', 'x-auth-token');
   
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} from ${req.headers.origin || 'no-origin'}`);
+  
+  // Handle OPTIONS immediately
   if (req.method === 'OPTIONS') {
-    console.log('✅ OPTIONS request for:', req.path);
+    console.log('✅ Handling OPTIONS preflight');
     return res.status(200).end();
   }
   
-  console.log(`📨 ${req.method} ${req.path}`);
   next();
 });
+
 /* =========================
    MIDDLEWARE
    ========================= */
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Debug middleware (remove after fixing)
-app.use((req, res, next) => {
-  console.log(`📨 ${req.method} ${req.path} from ${req.headers.origin || 'no origin'}`);
-  next();
-});
 
 /* =========================
    STATIC UPLOADS
    ========================= */
-
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -57,7 +56,6 @@ app.use('/uploads', express.static(uploadsDir));
 /* =========================
    DATABASE
    ========================= */
-
 mongoose.set('bufferCommands', false);
 
 mongoose.connection.on('connected', () => {
@@ -73,7 +71,6 @@ mongoose.connection.on('disconnected', () => {
 /* =========================
    ROUTES
    ========================= */
-
 function mountRoutes() {
   const authRoutes = require('./routes/auth');
   const userRoutes = require('./routes/users');
@@ -92,8 +89,7 @@ function mountRoutes() {
   const linkRoutes = require('./routes/link');
 
   app.use('/api/auth', authRoutes);
-  app.use('/auth', authRoutes); // backward compatibility
-
+  app.use('/auth', authRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/community', communityRoutes);
   app.use('/api/works', worksRoutes);
@@ -113,7 +109,6 @@ function mountRoutes() {
 /* =========================
    HEALTH CHECK
    ========================= */
-
 app.get('/', (req, res) => {
   res.json({ 
     status: 'running',
@@ -125,7 +120,6 @@ app.get('/', (req, res) => {
 /* =========================
    ERROR HANDLER
    ========================= */
-
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.stack);
   res.status(500).json({ error: 'Internal server error' });
@@ -134,11 +128,9 @@ app.use((err, req, res, next) => {
 /* =========================
    SOCKET.IO
    ========================= */
-
 const io = new Server(server, {
   cors: {
-    origin: corsOptions.origin,
-    credentials: true,
+    origin: '*',
     methods: ['GET', 'POST'],
   },
 });
@@ -164,7 +156,6 @@ io.on('connection', (socket) => {
 /* =========================
    SERVER START
    ========================= */
-
 const PORT = process.env.PORT || 5000;
 
 async function start() {
@@ -176,7 +167,7 @@ async function start() {
 
     mountRoutes();
 
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
