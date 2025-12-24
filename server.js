@@ -17,26 +17,28 @@ const server = http.createServer(app);
 app.set('trust proxy', true);
 app.enable('trust proxy');
 
-/* =========================
-   RAW CORS HANDLER - BEFORE EVERYTHING
-   ========================= */
-app.use((req, res, next) => {
-  // Set CORS headers for ALL requests
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
-  res.setHeader('Access-Control-Expose-Headers', 'x-auth-token');
-  
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} from ${req.headers.origin || 'no-origin'}`);
-  
-  // Handle OPTIONS immediately
-  if (req.method === 'OPTIONS') {
-    console.log('✅ Handling OPTIONS preflight');
-    return res.status(200).end();
-  }
-  
-  next();
-});
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://bl-verse.netlify.app"
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // Postman / curl
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Blocked by CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
+  credentials: true
+}));
+
+// 👇 THIS LINE IS NON-NEGOTIABLE
+app.options("*", cors());
+
 
 /* =========================
    MIDDLEWARE
