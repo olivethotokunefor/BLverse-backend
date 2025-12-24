@@ -12,39 +12,25 @@ const app = express();
 const server = http.createServer(app);
 
 /* =========================
-   CORS (PXXL-SPECIFIC FIX)
+   CORS (SIMPLIFIED - NO CREDENTIALS)
    ========================= */
 
-// Critical for pxxl reverse proxy
 app.set('trust proxy', true);
-app.enable('trust proxy');
 
-// Pre-flight and CORS handler
 app.use((req, res, next) => {
-  const origin = req.headers.origin || req.headers.referer;
-  
-  // Allow your frontend
-  if (origin && origin.includes('bl-verse.netlify.app')) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-auth-token');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
   res.setHeader('Access-Control-Expose-Headers', 'x-auth-token');
   
-  // Handle preflight
   if (req.method === 'OPTIONS') {
+    console.log('✅ OPTIONS request for:', req.path);
     return res.status(200).end();
   }
   
+  console.log(`📨 ${req.method} ${req.path}`);
   next();
 });
-
 /* =========================
    MIDDLEWARE
    ========================= */
