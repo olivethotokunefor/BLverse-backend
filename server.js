@@ -153,17 +153,20 @@ io.on("connection", (socket) => {
 ========================= */
 const PORT = process.env.PORT || 5000;
 
-(async () => {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 10000,
-    });
+// Start server immediately (for testing without DB)
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT} (DB connection optional)`);
+});
 
-    server.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error("❌ Failed to start server:", err);
-    process.exit(1);
-  }
-})();
+// Attempt DB connection separately (won't crash server if fails)
+if (process.env.MONGODB_URI) {
+  mongoose.connect(process.env.MONGODB_URI, {
+    serverSelectionTimeoutMS: 10000,
+  }).then(() => {
+    console.log("✅ Connected to MongoDB");
+  }).catch(err => {
+    console.warn("⚠️ MongoDB connection failed (server still running):", err.message);
+  });
+} else {
+  console.warn("⚠️ No MONGODB_URI provided – running without database");
+}
