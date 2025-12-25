@@ -1,17 +1,33 @@
 const brevo = require('@getbrevo/brevo');
 
-// Initialize API instance
-const apiInstance = new brevo.TransactionalEmailsApi();
-apiInstance.setApiKey(
-  brevo.TransactionalEmailsApiApiKeys.apiKey,
-  process.env.BREVO_API_KEY
-);
+// Initialize Brevo API instance with error handling
+let apiInstance = null;
+
+try {
+  if (!process.env.BREVO_API_KEY) {
+    console.warn('⚠️ WARNING: BREVO_API_KEY not set. Email functionality disabled.');
+  } else {
+    apiInstance = new brevo.TransactionalEmailsApi();
+    apiInstance.setApiKey(
+      brevo.TransactionalEmailsApiApiKeys.apiKey,
+      process.env.BREVO_API_KEY
+    );
+    console.log('✅ Brevo email service initialized');
+  }
+} catch (error) {
+  console.error('❌ Failed to initialize Brevo:', error.message);
+}
 
 async function sendEmail({ to, subject, html, text }) {
+  if (!apiInstance) {
+    console.error('❌ Email service not initialized. Check BREVO_API_KEY.');
+    throw new Error('Email service not available');
+  }
+
   try {
     const sendSmtpEmail = {
       sender: { 
-        email: 'your-email@gmail.com', // Replace with your verified email
+        email: process.env.EMAIL_FROM || 'noreply@blverse.com',
         name: 'BLverse' 
       },
       to: [{ email: to }],
@@ -21,15 +37,15 @@ async function sendEmail({ to, subject, html, text }) {
     };
 
     const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    console.log('Email sent successfully:', result.messageId);
+    console.log('✅ Email sent successfully to:', to);
     return result;
   } catch (error) {
-    console.error('Brevo email error:', error);
+    console.error('❌ Brevo email error:', error);
     throw error;
   }
 }
 
-// Specific email templates
+// Send verification email
 async function sendVerificationEmail(email, verificationToken) {
   const verificationLink = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
   
@@ -55,6 +71,7 @@ async function sendVerificationEmail(email, verificationToken) {
   });
 }
 
+// Send password reset email
 async function sendPasswordResetEmail(email, resetToken) {
   const resetLink = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
   
