@@ -7,11 +7,14 @@ const handlebars = require("handlebars");
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
-  secure: false,
+  secure: false, // use STARTTLS on 587
+  requireTLS: true,
   auth: {
     user: process.env.EMAIL_USERNAME,
     pass: process.env.EMAIL_PASSWORD,
   },
+  logger: true,
+  debug: true,
 });
 
 // Helper to load & compile template
@@ -32,7 +35,7 @@ exports.sendVerificationEmail = async (email, token) => {
   });
 
   const mailOptions = {
-    from: `"BLverse" <${process.env.EMAIL_USERNAME}>`,
+    from: `"BLverse" <${process.env.EMAIL_FROM || process.env.EMAIL_USERNAME}>`,
     to: email,
     subject: "Verify Your Email Address",
     html,
@@ -59,7 +62,7 @@ exports.sendPasswordResetEmail = async (email, token) => {
   });
 
   const mailOptions = {
-    from: `"BLverse" <${process.env.EMAIL_USERNAME}>`,
+    from: `"BLverse" <${process.env.EMAIL_FROM || process.env.EMAIL_USERNAME}>`,
     to: email,
     subject: "Password Reset Request",
     html,
