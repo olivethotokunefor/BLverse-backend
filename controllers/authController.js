@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
-const { sendVerificationEmail } = require('../services/emailService');
+const { sendVerificationEmail, sendTestEmail } = require('../services/emailService');
 
 // Generate JWT Token
 const generateToken = (user) => {
@@ -11,6 +11,21 @@ const generateToken = (user) => {
     process.env.JWT_SECRET,
     { expiresIn: '30d' }
   );
+};
+
+// @desc    Send a test email to verify SMTP configuration
+// @route   POST /api/auth/email-test
+// @access  Private
+exports.emailTest = async (req, res) => {
+  try {
+    const to = (req.body && req.body.to) || req.user?.email;
+    if (!to) return res.status(400).json({ message: 'Recipient email required' });
+    const info = await sendTestEmail(to);
+    return res.json({ ok: true, messageId: info?.messageId, response: info?.response });
+  } catch (error) {
+    const msg = (error && error.message) || 'Email test failed';
+    return res.status(500).json({ ok: false, message: msg });
+  }
 };
 
 // @desc    Resend verification email (and optionally expose token in dev)

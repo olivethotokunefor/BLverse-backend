@@ -52,6 +52,21 @@ exports.sendVerificationEmail = async (email, token) => {
   }
 };
 
+// Simple test email to diagnose SMTP in production
+exports.sendTestEmail = async (to) => {
+  const mailOptions = {
+    from: `"BLverse" <${process.env.EMAIL_FROM || process.env.EMAIL_USERNAME}>`,
+    to,
+    subject: "BLverse Email Test",
+    text: "This is a test email from BLverse backend.",
+    html: "<p>This is a <strong>test</strong> email from BLverse backend.</p>",
+  };
+
+  await transporter.verify();
+  const info = await transporter.sendMail(mailOptions);
+  return info;
+};
+
 // Send password reset email
 exports.sendPasswordResetEmail = async (email, token) => {
   const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
