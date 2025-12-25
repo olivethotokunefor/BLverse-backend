@@ -39,7 +39,7 @@ app.use(
 );
 
 // 🔑 PRE-FLIGHT HANDLER (DO NOT REMOVE)
-app.options("*", cors());
+app.options(/.*/, cors());
 
 /* =========================
    BODY PARSERS
