@@ -1,172 +1,180 @@
-const brevo = require('@getbrevo/brevo');
+require('dotenv').config();
+const express = require('express');
+const http = require('http');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+const { Server } = require('socket.io');
+const { setIO } = require('./realtime/io');
 
-// Initialize Brevo API instance
-const apiInstance = new brevo.TransactionalEmailsApi();
-apiInstance.setApiKey(
-  brevo.TransactionalEmailsApiApiKeys.apiKey,
-  process.env.BREVO_API_KEY
+const app = express();
+const server = http.createServer(app);
+
+// Trust proxy (needed on Render/Netlify proxies for correct IPs)
+app.set('trust proxy', 1);
+
+// Build allowed origins from env and common dev/prod hosts
+const extraOrigins = (process.env.CLIENT_URLS || '')
+  .split(',')
+  .map((s) => s && s.trim())
+  .filter(Boolean);
+
+const allowedOriginsList = [
+  process.env.CLIENT_URL,
+  ...extraOrigins,
+  'https://bl-verse.netlify.app',
+  'http://bl-verse.netlify.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+].filter(Boolean);
+
+// Origin checker to allow specific subdomains (e.g., Netlify/Vercel previews)
+const corsOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true); // Postman/curl/no Origin
+  if (allowedOriginsList.includes(origin)) return callback(null, true);
+  try {
+    const host = new URL(origin).hostname;
+    if (/\.netlify\.app$/.test(host)) return callback(null, true);
+    if (/\.vercel\.app$/.test(host)) return callback(null, true);
+  } catch {}
+  return callback(new Error('Blocked by CORS'));
+};
+
+// CORS middleware
+app.use(
+  cors({
+    origin: corsOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'X-Requested-With'],
+  })
 );
 
-// Base email sending function
-async function sendEmail({ to, subject, html, text }) {
-  try {
-    const sendSmtpEmail = {
-      sender: { 
-        email: process.env.EMAIL_FROM || 'noreply@blverse.com', // Replace with your verified email
-        name: 'BLverse' 
-      },
-      to: [{ email: to }],
-      subject: subject,
-      htmlContent: html,
-      textContent: text || undefined
-    };
-
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    console.log('✅ Email sent successfully to:', to);
-    return result;
-  } catch (error) {
-    console.error('❌ Brevo email error:', error);
-    throw error;
+// Express 5-safe preflight handler (avoid app.options('*', ...))
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    if (origin && (allowedOriginsList.includes(origin) || (() => {
+      try {
+        const host = new URL(origin).hostname;
+        return /\.netlify\.app$/.test(host) || /\.vercel\.app$/.test(host);
+      } catch { return false; }
+    })())) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token, X-Requested-With');
+    return res.sendStatus(204);
   }
-}
+  next();
+});
 
-// Send verification email
-async function sendVerificationEmail(email, verificationToken) {
-  const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
-  
-  return sendEmail({
-    to: email,
-    subject: 'Verify Your BLverse Email',
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      </head>
-      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
-        <div style="max-width: 600px; margin: 40px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <!-- Header -->
-          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">Welcome to BLverse! 🎉</h1>
-          </div>
-          
-          <!-- Content -->
-          <div style="padding: 40px 30px;">
-            <h2 style="color: #333; margin-top: 0;">Verify Your Email Address</h2>
-            <p style="color: #666; font-size: 16px; line-height: 1.6;">
-              Thank you for joining BLverse! We're excited to have you as part of our community.
-            </p>
-            <p style="color: #666; font-size: 16px; line-height: 1.6;">
-              Please verify your email address by clicking the button below:
-            </p>
-            
-            <!-- Button -->
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationLink}" 
-                 style="display: inline-block; padding: 14px 32px; background-color: #667eea; 
-                        color: white; text-decoration: none; border-radius: 6px; font-weight: bold;
-                        font-size: 16px;">
-                Verify Email Address
-              </a>
-            </div>
-            
-            <p style="color: #666; font-size: 14px; line-height: 1.6;">
-              Or copy and paste this link into your browser:
-            </p>
-            <p style="color: #667eea; font-size: 13px; word-break: break-all; background-color: #f8f9fa; padding: 12px; border-radius: 4px;">
-              ${verificationLink}
-            </p>
-            
-            <p style="color: #999; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-              ⏰ This link will expire in 24 hours.<br>
-              If you didn't create a BLverse account, you can safely ignore this email.
-            </p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
-    text: `Welcome to BLverse!\n\nPlease verify your email address by clicking this link:\n${verificationLink}\n\nThis link will expire in 24 hours.\n\nIf you didn't create this account, you can safely ignore this email.`
+// Body parsers
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Static uploads
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
+// MongoDB connection (non-blocking)
+mongoose.set('bufferCommands', false);
+mongoose.connection.on('connected', () => console.log('✅ Connected to MongoDB'));
+mongoose.connection.on('error', (err) => console.error('❌ MongoDB error:', err));
+mongoose.connection.on('disconnected', () => console.warn('⚠️ MongoDB disconnected'));
+
+// Routes
+const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
+const communityRoutes = require('./routes/community');
+const worksRoutes = require('./routes/works');
+const mediaRoutes = require('./routes/media');
+const readingProgressRoutes = require('./routes/readingProgress');
+const dramaRoutes = require('./routes/dramas');
+const storyRoutes = require('./routes/stories');
+const shipRoutes = require('./routes/ships');
+const merchRoutes = require('./routes/merch');
+const messageRoutes = require('./routes/messages');
+const newsRoutes = require('./routes/news');
+const aiChatRoutes = require('./routes/aiChat');
+const notificationsRoutes = require('./routes/notifications');
+const linkRoutes = require('./routes/link');
+
+app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes); // backward compatible mount if frontend omits /api
+app.use('/api/users', userRoutes);
+app.use('/api/community', communityRoutes);
+app.use('/api/works', worksRoutes);
+app.use('/api/media', mediaRoutes);
+app.use('/api/reading-progress', readingProgressRoutes);
+app.use('/api/dramas', dramaRoutes);
+app.use('/api/stories', storyRoutes);
+app.use('/api/ships', shipRoutes);
+app.use('/api/merch', merchRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/news', newsRoutes);
+app.use('/api/ai-chat', aiChatRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/link', linkRoutes);
+
+// Health
+app.get('/', (req, res) => {
+  res.json({
+    status: 'running',
+    message: 'BLverse API is running',
+    timestamp: new Date().toISOString(),
   });
-}
+});
 
-// Send password reset email
-async function sendPasswordResetEmail(email, resetToken) {
-  const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-  
-  return sendEmail({
-    to: email,
-    subject: 'Reset Your BLverse Password',
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      </head>
-      <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
-        <div style="max-width: 600px; margin: 40px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          <!-- Header -->
-          <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); padding: 40px 20px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 28px;">Password Reset Request 🔐</h1>
-          </div>
-          
-          <!-- Content -->
-          <div style="padding: 40px 30px;">
-            <h2 style="color: #333; margin-top: 0;">Reset Your Password</h2>
-            <p style="color: #666; font-size: 16px; line-height: 1.6;">
-              We received a request to reset your BLverse password. Click the button below to create a new password:
-            </p>
-            
-            <!-- Button -->
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetLink}" 
-                 style="display: inline-block; padding: 14px 32px; background-color: #f5576c; 
-                        color: white; text-decoration: none; border-radius: 6px; font-weight: bold;
-                        font-size: 16px;">
-                Reset Password
-              </a>
-            </div>
-            
-            <p style="color: #666; font-size: 14px; line-height: 1.6;">
-              Or copy and paste this link into your browser:
-            </p>
-            <p style="color: #f5576c; font-size: 13px; word-break: break-all; background-color: #f8f9fa; padding: 12px; border-radius: 4px;">
-              ${resetLink}
-            </p>
-            
-            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 20px 0; border-radius: 4px;">
-              <p style="color: #856404; margin: 0; font-size: 14px;">
-                ⚠️ <strong>Security Notice:</strong> This link will expire in 1 hour.
-              </p>
-            </div>
-            
-            <p style="color: #999; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
-              If you didn't request a password reset, please ignore this email or contact support if you're concerned about your account security.
-            </p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
-    text: `Password Reset Request\n\nWe received a request to reset your BLverse password.\n\nClick this link to reset your password:\n${resetLink}\n\nThis link will expire in 1 hour.\n\nIf you didn't request this, please ignore this email.`
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Socket.IO (mirror CORS)
+const io = new Server(server, {
+  cors: {
+    origin: corsOrigin,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    credentials: true,
+  },
+});
+setIO(io);
+
+io.on('connection', (socket) => {
+  const token =
+    (socket.handshake.auth && socket.handshake.auth.token) ||
+    (socket.handshake.query && socket.handshake.query.token);
+  // REST endpoints handle auth; sockets can join rooms as needed
+  socket.on('join_conversation', (conversationId) => {
+    if (conversationId) socket.join(String(conversationId));
   });
-}
-
-// Test email function (optional - for debugging)
-async function sendTestEmail(to) {
-  return sendEmail({
-    to: to,
-    subject: 'BLverse Email Test',
-    html: '<p>This is a test email from BLverse. If you received this, your email service is working correctly! ✅</p>',
-    text: 'This is a test email from BLverse. If you received this, your email service is working correctly!'
+  socket.on('join_user', (userId) => {
+    if (userId) socket.join(String(userId));
   });
-}
+});
 
-module.exports = {
-  sendEmail,
-  sendVerificationEmail,
-  sendPasswordResetEmail,
-  sendTestEmail
-};
+// Start server immediately
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
+
+// Connect DB asynchronously (server remains up even if DB fails initially)
+if (process.env.MONGODB_URI) {
+  mongoose
+    .connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
+    .then(() => console.log('✅ Connected to MongoDB'))
+    .catch((err) =>
+      console.warn('⚠️ MongoDB connection failed (server still running):', err.message)
+    );
+} else {
+  console.warn('⚠️ No MONGODB_URI provided – running without database');
+}
