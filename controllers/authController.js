@@ -197,7 +197,7 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
-// @desc    Login user (only if email is verified)
+// @desc    Login user (TEMPORARY: allows unverified users while waiting for Brevo activation)
 // @route   POST /api/auth/login
 // @access  Public
 exports.login = async (req, res) => {
@@ -216,10 +216,15 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // Block login if email is not verified
+    // TEMPORARY FIX: Auto-verify users while waiting for Brevo email service activation
+    // TODO: Remove this section once Brevo account is activated by their support team
+    // Email: contact@brevo.com to request activation
     if (!user.isVerified) {
-      return res.status(403).json({ message: 'Please verify your email before logging in.' });
+      console.log('⚠️ TEMPORARY: Auto-verifying user during Brevo setup:', user.email);
+      user.isVerified = true;
+      await user.save();
     }
+    // END TEMPORARY FIX - Delete the above 5 lines after Brevo is activated
 
     // Generate token
     const token = generateToken(user);
