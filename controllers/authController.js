@@ -55,7 +55,6 @@ exports.resendVerification = async (req, res) => {
 
     return res.status(200).json({
       message: 'Verification email resent. Please check your inbox.',
-      ...(shouldExposeToken ? { devToken: user.verificationToken } : {}),
     });
   } catch (error) {
     console.error('Resend verification error:', error);
@@ -63,11 +62,9 @@ exports.resendVerification = async (req, res) => {
   }
 };
 
-// @desc    Register a new user (sends verification email)
+// @desc    Register a new user and return JWT token (auto-login)
 // @route   POST /api/auth/register
 // @access  Public
-const shouldExposeToken = process.env.NODE_ENV !== 'production' || process.env.EXPOSE_VERIFICATION_TOKEN === 'true';
-
 exports.register = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -83,25 +80,8 @@ exports.register = async (req, res) => {
     // Check if user already exists (by email)
     let user = await User.findOne({ email });
     if (user) {
-      if (!user.isVerified) {
-        // Regenerate verification token and resend email
-        user.verificationToken = crypto.randomBytes(32).toString('hex');
-        user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        await user.save();
-
-        try {
-          await sendVerificationEmail(user.email, user.verificationToken);
-        } catch (emailError) {
-          console.error('Failed to resend verification email:', emailError);
-        }
-
-        return res.status(200).json({
-          message: 'Account already created but not verified. We re-sent the verification email.',
-          ...(shouldExposeToken ? { devToken: user.verificationToken } : {}),
-        });
-      }
-      // If already verified, don't leak details or block UX
-      return res.status(200).json({ message: 'Account already exists. Please log in.' });
+      // User exists - just return error
+      return res.status(400).json({ message: 'Email already registered. Please login instead.' });
     }
 
     // Ensure username is unique; if taken, auto-suggest a unique variant
@@ -121,32 +101,40 @@ exports.register = async (req, res) => {
       username = candidate;
     }
 
-    // Create verification token
+    // Create verification token (for future email verification if needed)
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
-    // Create new user
+    // Create new user - AUTO-VERIFIED
     user = new User({
       username,
       email,
       password,
-      isVerified: false,
+      isVerified: true, // ✅ Auto-verify on signup
       verificationToken,
       verificationTokenExpires
     });
 
     await user.save();
 
-    // Send verification email (fire-and-forget)
+    // Try to send verification email (optional, won't block signup)
     try {
       await sendVerificationEmail(user.email, verificationToken);
     } catch (emailError) {
       console.error('Failed to send verification email:', emailError);
+      // Continue anyway - user is already verified
     }
 
+    // Generate JWT token and return user data
+    const token = generateToken(user);
+
     res.status(201).json({
-      message: `Registration successful for @${username}. Please check your email to verify your account.`,
-      ...(shouldExposeToken ? { devToken: verificationToken } : {}),
+      message: `Registration successful! Welcome @${username}`,
+      token: token,
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      role: user.role
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -197,7 +185,7 @@ exports.verifyEmail = async (req, res) => {
   }
 };
 
-// @desc    Login user (TEMPORARY: allows unverified users while waiting for Brevo activation)
+// @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
 exports.login = async (req, res) => {
@@ -215,16 +203,6 @@ exports.login = async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }
-
-    // TEMPORARY FIX: Auto-verify users while waiting for Brevo email service activation
-    // TODO: Remove this section once Brevo account is activated by their support team
-    // Email: contact@brevo.com to request activation
-    if (!user.isVerified) {
-      console.log('⚠️ TEMPORARY: Auto-verifying user during Brevo setup:', user.email);
-      user.isVerified = true;
-      await user.save();
-    }
-    // END TEMPORARY FIX - Delete the above 5 lines after Brevo is activated
 
     // Generate token
     const token = generateToken(user);
