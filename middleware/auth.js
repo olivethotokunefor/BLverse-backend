@@ -2,7 +2,13 @@ const jwt = require('jsonwebtoken');
 
 // Middleware to verify JWT token
 exports.protect = (req, res, next) => {
-  const token = req.header('x-auth-token');
+  const authHeader = req.get('authorization') || req.get('Authorization') || '';
+  let token = req.header('x-auth-token');
+  if (!token && authHeader) {
+    token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : authHeader;
+  }
   if (!token) return res.status(401).json({ message: 'No token, authorization denied' });
 
   try {
