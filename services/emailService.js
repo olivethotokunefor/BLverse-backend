@@ -31,7 +31,7 @@ async function sendEmail({ to, subject, html, text }) {
 
 // Specific email templates
 async function sendVerificationEmail(email, verificationToken) {
-  const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
+  const verificationLink = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
   
   return sendEmail({
     to: email,
@@ -56,7 +56,7 @@ async function sendVerificationEmail(email, verificationToken) {
 }
 
 async function sendPasswordResetEmail(email, resetToken) {
-  const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+  const resetLink = `${process.env.CLIENT_URL}/reset-password?token=${resetToken}`;
   
   return sendEmail({
     to: email,
