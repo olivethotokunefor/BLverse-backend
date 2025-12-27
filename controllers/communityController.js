@@ -180,7 +180,11 @@ exports.getFeed = async (req, res) => {
     const cursorCreatedAt = req.query.cursorCreatedAt ? new Date(req.query.cursorCreatedAt) : null;
     const cursorId = req.query.cursorId || null;
     // Optional auth: if token provided, compute likedByMe
-    const token = req.header('x-auth-token');
+    let token = req.header('x-auth-token');
+    if (!token) {
+      const auth = req.header('authorization') || req.header('Authorization');
+      if (auth && /^Bearer\s+/i.test(auth)) token = auth.replace(/^Bearer\s+/i, '').trim();
+    }
     let currentUserId = null;
     if (token) {
       try {
