@@ -74,7 +74,7 @@ exports.getFeed = async (req, res) => {
     // Get comments count for all posts
     const postIds = posts.map(p => p._id);
     const commentsCounts = await PostComment.aggregate([
-      { $match: { post: { $in: postIds }, parent: { $exists: false } } },
+      { $match: { post: { $in: postIds }, parent: null } },
       { $group: { _id: '$post', count: { $sum: 1 } } }
     ]);
     const commentsMap = new Map(commentsCounts.map(c => [String(c._id), c.count]));
@@ -129,7 +129,7 @@ exports.getPosts = async (req, res) => {
     // Get comments count for all posts
     const postIds = posts.map(p => p._id);
     const commentsCounts = await PostComment.aggregate([
-      { $match: { post: { $in: postIds }, parent: { $exists: false } } },
+      { $match: { post: { $in: postIds }, parent: null } },
       { $group: { _id: '$post', count: { $sum: 1 } } }
     ]);
     const commentsMap = new Map(commentsCounts.map(c => [String(c._id), c.count]));
@@ -258,7 +258,7 @@ exports.updatePost = async (req, res) => {
     await post.save();
 
     // Get actual comments count
-    const commentsCount = await PostComment.countDocuments({ post: postId, parent: { $exists: false } });
+    const commentsCount = await PostComment.countDocuments({ post: postId, parent: null });
 
     const mongoUser = await User.findById(req.user.id).select('username profile');
     const response = {
@@ -391,7 +391,7 @@ exports.attachPostImage = async (req, res) => {
       await post.save();
 
       // Get actual comments count
-      const commentsCount = await PostComment.countDocuments({ post: postId, parent: { $exists: false } });
+      const commentsCount = await PostComment.countDocuments({ post: postId, parent: null });
 
       const mongoUser = await User.findById(req.user.id).select('username profile');
       const response = {
@@ -497,7 +497,7 @@ exports.getComments = async (req, res) => {
     const { postId } = req.params;
     const max = Math.min(parseInt(req.query.limit, 10) || 100, 500);
 
-    const comments = await PostComment.find({ post: postId, parent: { $exists: false } })
+    const comments = await PostComment.find({ post: postId, parent: null })
       .sort({ createdAt: 1 })
       .limit(max)
       .populate('user', 'username profile');
