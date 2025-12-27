@@ -173,12 +173,16 @@ exports.getPosts = async (req, res) => {
 // @desc    Paginated feed with optional tag filter
 // @route   GET /api/community/feed
 // @access  Private
+// In communityController.js
+
+// Update the getFeed function to include commentsCount
 exports.getFeed = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
     const tag = typeof req.query.tag === 'string' && req.query.tag.trim() ? req.query.tag.trim() : null;
     const cursorCreatedAt = req.query.cursorCreatedAt ? new Date(req.query.cursorCreatedAt) : null;
     const cursorId = req.query.cursorId || null;
+    
     // Optional auth: if token provided, compute likedByMe
     let token = req.header('x-auth-token');
     if (!token) {
@@ -215,6 +219,14 @@ exports.getFeed = async (req, res) => {
       likedSet = new Set(likes.map((l) => String(l.post)));
     }
 
+    // Get comments count for all posts
+    const postIds = posts.map(p => p._id);
+    const commentsCounts = await PostComment.aggregate([
+      { $match: { post: { $in: postIds }, parent: { $exists: false } } }, // Only root comments, not replies
+      { $group: { _id: '$post', count: { $sum: 1 } } }
+    ]);
+    const commentsMap = new Map(commentsCounts.map(c => [String(c._id), c.count]));
+
     const items = posts.map((p) => ({
       _id: p._id,
       user: {
@@ -230,6 +242,7 @@ exports.getFeed = async (req, res) => {
       content: p.content || '',
       tags: Array.isArray(p.tags) ? p.tags : [],
       likesCount: typeof p.likesCount === 'number' ? p.likesCount : 0,
+      commentsCount: commentsMap.get(String(p._id)) || 0, // ADD THIS LINE
       createdAt: p.createdAt ? p.createdAt.toISOString() : new Date().toISOString(),
       mediaUrl: p.mediaUrl || undefined,
       likedByMe: currentUserId ? likedSet.has(String(p._id)) : undefined,
@@ -243,6 +256,283 @@ exports.getFeed = async (req, res) => {
     return res.json({ items, nextCursor });
   } catch (error) {
     console.error('Get feed error:', error);
+    const msg = (error && error.message) || 'Server error';
+    return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Server error' });
+  }
+};
+
+// Update the getPosts function similarly
+exports.getPosts = async (req, res) => {
+  console.log('🔹 getPosts route HIT', { query: req.query, headers: req.headers });
+  try {
+    const max = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+
+    const posts = await CommunityPost.find()
+      .sort({ createdAt: -1 })
+      .limit(max)
+      .populate('user', 'username profile');
+
+    // Get comments count for all posts
+    const postIds = posts.map(p => p._id);
+    const commentsCounts = await PostComment.aggregate([
+      { $match: { post: { $in: postIds }, parent: { $exists: false } } },
+      { $group: { _id: '$post', count: { $sum: 1 } } }
+    ]);
+    const commentsMap = new Map(commentsCounts.map(c => [String(c._id), c.count]));
+
+    const items = posts.map((p) => ({
+      _id: p._id,
+      user: {
+        _id: p.user?._id || '',
+        username: p.user?.username || 'Anonymous',
+        profile: {
+          fullName: p.user?.profile?.fullName || undefined,
+          bio: p.user?.profile?.bio || undefined,
+          avatar: p.user?.profile?.avatar || undefined,
+          location: p.user?.profile?.location || undefined,
+        },
+      },
+      content: p.content || '',
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      likesCount: typeof p.likesCount === 'number' ? p.likesCount : 0,
+      commentsCount: commentsMap.get(String(p._id)) || 0, // ADD THIS LINE
+      createdAt: p.createdAt ? p.createdAt.toISOString() : new Date().toISOString(),
+      mediaUrl: p.mediaUrl || undefined,
+    }));
+
+    return res.json(items);
+  } catch (error) {
+    console.error('Get community posts error:', error);
+    const msg = (error && error.message) || 'Server error';
+    return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Server error' });
+  }
+};
+
+// Update createPost to include commentsCount: 0
+exports.createPost = async (req, res) => {
+  try {
+    const { content, tags } = req.body;
+
+    if (!content || !String(content).trim()) {
+      return res.status(400).json({ message: 'Content is required' });
+    }
+
+    const mongoUser = await User.findById(req.user?.id).select('username profile');
+    if (!mongoUser) {
+      return res.status(404).json({ message: 'User not found in database' });
+    }
+
+    const tagList = Array.isArray(tags)
+      ? tags
+      : typeof tags === 'string'
+      ? tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
+
+    const created = await CommunityPost.create({
+      user: req.user.id,
+      content: String(content).trim(),
+      tags: tagList,
+      likesCount: 0,
+    });
+
+    const response = {
+      _id: created._id,
+      user: {
+        _id: String(req.user.id),
+        username: mongoUser.username || 'Anonymous',
+        profile: {
+          fullName: mongoUser.profile?.fullName || undefined,
+          bio: mongoUser.profile?.bio || undefined,
+          avatar: mongoUser.profile?.avatar || undefined,
+          location: mongoUser.profile?.location || undefined,
+        },
+      },
+      content: created.content,
+      tags: created.tags,
+      likesCount: created.likesCount,
+      commentsCount: 0, // ADD THIS LINE
+      createdAt: created.createdAt?.toISOString() || new Date().toISOString(),
+    };
+    broadcast('post_created', response);
+
+    // Mention notifications in post content
+    try {
+      await createMentionNotifications({
+        actorId: req.user.id,
+        entityType: 'community_post',
+        entityId: created._id,
+        url: `/community`,
+        text: created.content,
+      });
+    } catch (e) {
+      console.error('post mention notification error', e);
+    }
+
+    res.status(201).json(response);
+  } catch (error) {
+    console.error('Create community post error:', error);
+    const msg = (error && error.message) || 'Server error';
+    return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Server error' });
+  }
+};
+
+// Update updatePost to get the actual comments count
+exports.updatePost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { content, tags } = req.body || {};
+
+    const post = await CommunityPost.findById(postId).select('user content tags');
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    if (String(post.user) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    if (typeof content === 'string') post.content = content.trim();
+    if (Array.isArray(tags)) post.tags = tags;
+    else if (typeof tags === 'string') post.tags = tags.split(',').map((t) => t.trim()).filter(Boolean);
+
+    await post.save();
+
+    // Get actual comments count
+    const commentsCount = await PostComment.countDocuments({ post: postId, parent: { $exists: false } });
+
+    const mongoUser = await User.findById(req.user.id).select('username profile');
+    const response = {
+      _id: post._id,
+      user: {
+        _id: String(req.user.id),
+        username: mongoUser?.username || 'Anonymous',
+        profile: {
+          fullName: mongoUser?.profile?.fullName || undefined,
+          bio: mongoUser?.profile?.bio || undefined,
+          avatar: mongoUser?.profile?.avatar || undefined,
+          location: mongoUser?.profile?.location || undefined,
+        },
+      },
+      content: post.content,
+      tags: post.tags,
+      likesCount: post.likesCount,
+      commentsCount, // ADD THIS LINE
+      createdAt: post.createdAt?.toISOString() || new Date().toISOString(),
+      mediaUrl: post.mediaUrl || undefined,
+    };
+    broadcast('post_updated', response);
+    return res.json(response);
+  } catch (error) {
+    console.error('Update community post error:', error);
+    const msg = (error && error.message) || 'Server error';
+    return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Server error' });
+  }
+};
+
+// Also update attachPostImage
+exports.attachPostImage = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const post = await CommunityPost.findById(postId).select('user mediaUrl createdAt content tags likesCount');
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    if (String(post.user) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'Image is required' });
+    }
+
+    // Upload to Cloudinary if configured
+    try {
+      const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, CLOUDINARY_FOLDER_POSTS } = process.env;
+      if (!(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET)) {
+        return res.status(500).json({ message: 'Cloud storage not configured' });
+      }
+
+      const cloudinary = require('cloudinary').v2;
+      try {
+        cloudinary.config({
+          cloud_name: CLOUDINARY_CLOUD_NAME,
+          api_key: CLOUDINARY_API_KEY,
+          api_secret: CLOUDINARY_API_SECRET,
+          secure: true,
+        });
+      } catch (e) {
+        // ignore config errors
+      }
+
+      const path = require('path');
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      const base = String(path.basename(req.file.originalname || 'upload', ext)).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const publicId = `${Date.now()}_${base}`;
+      const folder = CLOUDINARY_FOLDER_POSTS || 'blverse/community';
+
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream({ folder, resource_type: 'image', public_id: publicId }, (err, data) => (err ? reject(err) : resolve(data)));
+        stream.end(req.file.buffer);
+      });
+
+      if (!result || !result.secure_url) {
+        throw new Error('Cloudinary upload failed');
+      }
+
+      // Optionally persist to Media collection
+      try {
+        const Media = require('../models/Media');
+        await Media.create({
+          url: result.secure_url,
+          publicId: result.public_id,
+          resourceType: result.resource_type || 'image',
+          format: result.format || '',
+          bytes: result.bytes || 0,
+          duration: result.duration || 0,
+          width: result.width || 0,
+          height: result.height || 0,
+          createdBy: req.user ? req.user.id : undefined,
+        });
+      } catch (e) {
+        console.warn('Failed to create Media document:', e && e.message ? e.message : e);
+      }
+
+      post.mediaUrl = result.secure_url;
+      await post.save();
+
+      // Get actual comments count
+      const commentsCount = await PostComment.countDocuments({ post: postId, parent: { $exists: false } });
+
+      const mongoUser = await User.findById(req.user.id).select('username profile');
+      const response = {
+        _id: post._id,
+        user: {
+          _id: String(req.user.id),
+          username: mongoUser?.username || 'Anonymous',
+          profile: {
+            fullName: mongoUser?.profile?.fullName || undefined,
+            bio: mongoUser?.profile?.bio || undefined,
+            avatar: mongoUser?.profile?.avatar || undefined,
+            location: mongoUser?.profile?.location || undefined,
+          },
+        },
+        content: post.content,
+        tags: post.tags,
+        likesCount: post.likesCount,
+        commentsCount, // ADD THIS LINE
+        createdAt: post.createdAt?.toISOString() || new Date().toISOString(),
+        mediaUrl: post.mediaUrl,
+      };
+      broadcast('post_updated', response);
+      return res.json(response);
+    } catch (err) {
+      console.error('Attach post image (cloud) error:', err);
+      const msg = (err && err.message) || 'Upload failed';
+      return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Upload failed' });
+    }
+  } catch (error) {
+    console.error('Attach post image error:', error);
     const msg = (error && error.message) || 'Server error';
     return res.status(500).json({ message: process.env.NODE_ENV !== 'production' ? msg : 'Server error' });
   }
