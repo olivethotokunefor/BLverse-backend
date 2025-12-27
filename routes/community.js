@@ -1,3 +1,4 @@
+// routes/community.js
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
@@ -16,7 +17,6 @@ const {
   getFeed,
   getReplies,
   createReply,
-  toggleCommentLike,
 } = require('../controllers/communityController');
 const communityController = require('../controllers/communityController');
 const multer = require('multer');
@@ -38,6 +38,7 @@ router.get('/stream', stream);
 
 // Public feed (view-only): allow unauthenticated users to read posts
 router.get('/feed', getFeed);
+
 // Public: single post lookup for deep linking and previews
 router.get('/posts/:postId', (req, res, next) => {
   const fn = communityController.getPost;
@@ -47,6 +48,7 @@ router.get('/posts/:postId', (req, res, next) => {
 
 // Public: view comments without auth
 router.get('/posts/:postId/comments', getComments);
+
 // Public: lookup single comment metadata (post/parent) for deep linking
 router.get('/comments/:commentId', (req, res, next) => {
   const fn = communityController.getCommentById;
@@ -54,6 +56,10 @@ router.get('/comments/:commentId', (req, res, next) => {
   return res.status(501).json({ message: 'getCommentById not available' });
 });
 
+// Public: get replies
+router.get('/comments/:commentId/replies', getReplies);
+
+// Apply authentication middleware for all routes below
 router.use(protect);
 
 router.route('/posts')
@@ -62,8 +68,7 @@ router.route('/posts')
 
 router.post('/posts/:postId/likes/toggle', toggleLike);
 
-// Comments: expose GET publicly (move above protect) and POST under auth.
-// Note: GET is already defined publicly below.
+// Comments: POST under auth
 router.route('/posts/:postId/comments')
   .post(createComment);
 
@@ -78,8 +83,7 @@ router.delete('/comments/:commentId', deleteComment);
 // Attach image to a post
 router.post('/posts/:postId/image', upload.single('image'), attachPostImage);
 
-// Replies for comments
-router.get('/comments/:commentId/replies', getReplies);
+// Create reply
 router.post('/comments/:commentId/replies', createReply);
 
 // Comment/Reply likes
