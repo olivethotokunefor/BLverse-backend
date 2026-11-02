@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
+const { communityPost } = require('../middleware/rateLimiter');
 const {
   getPosts,
   createPost,
@@ -64,7 +65,7 @@ router.use(protect);
 
 router.route('/posts')
   .get(getPosts)
-  .post(createPost);
+  .post(communityPost, createPost);
 
 router.post('/posts/:postId/likes/toggle', toggleLike);
 

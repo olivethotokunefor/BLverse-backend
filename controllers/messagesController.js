@@ -215,12 +215,30 @@ async function ensureConversation(userA, userB) {
 // GET /api/messages/conversations
 exports.getConversations = async (req, res) => {
   try {
-    const list = await Conversation.find({ participants: req.user.id })
+    const userId = req.user.id;
+    const list = await Conversation.find({ participants: userId })
       .sort({ updatedAt: -1 })
-      .populate('participants', 'username profile');
+      .populate('participants', 'username profile')
+      .lean();
+
+    // Get unread counts in a single aggregation instead of fetching all messages
+    const conversationIds = list.map((c) => c._id);
+    const userObjId = new mongoose.Types.ObjectId(String(userId));
+    const unreadAgg = await Message.aggregate([
+      {
+        $match: {
+          conversation: { $in: conversationIds },
+          sender: { $ne: userObjId },
+          readBy: { $not: { $elemMatch: { $eq: userObjId } } },
+        },
+      },
+      { $group: { _id: '$conversation', count: { $sum: 1 } } },
+    ]);
+    const unreadMap = {};
+    for (const row of unreadAgg) unreadMap[String(row._id)] = row.count;
 
     const items = list.map((c) => {
-      const others = (c.participants || []).filter((u) => String(u._id) !== String(req.user.id));
+      const others = (c.participants || []).filter((u) => String(u._id) !== String(userId));
       return {
         id: String(c._id),
         otherUser: others[0] ? {
@@ -230,7 +248,7 @@ exports.getConversations = async (req, res) => {
         } : null,
         lastMessage: c.lastMessage || '',
         lastMessageAt: c.lastMessageAt ? c.lastMessageAt.toISOString() : c.updatedAt.toISOString(),
-        unreadCount: 0, // placeholder without read receipts
+        unreadCount: unreadMap[String(c._id)] || 0,
       };
     });
     res.json(items);
@@ -239,7 +257,6 @@ exports.getConversations = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
-
 // POST /api/messages/conversations/:otherUserId
 exports.getOrCreateConversation = async (req, res) => {
   try {

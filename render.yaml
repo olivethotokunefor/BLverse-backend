@@ -16,4 +16,21 @@ services:
         value: "18"
       - key: CLIENT_URL
         value: "https://bl-verse.netlify.app"
-     
+      - key: CLIENT_URLS
+        value: "https://bl-verse.netlify.app"
+      # ── Secrets: set these in the Render Dashboard > Environment ────────────
+      # Do NOT put secret values here — this file is committed to git.
+      # Add these keys manually in the dashboard with their real values:
+      #
+      #   MONGODB_URI
+      #   JWT_SECRET
+      #   CLOUDINARY_CLOUD_NAME
+      #   CLOUDINARY_API_KEY
+      #   CLOUDINARY_API_SECRET
+      #   EMAIL_USERNAME
+      #   EMAIL_PASSWORD
+      #   BREVO_API_KEY
+      #   RESEND_API_KEY
+      #   EMAIL_FROM
+      #   TMDB_API_KEY       ← new (move from VITE_TMDB_KEY in frontend)
+      #   GEMINI_API_KEY     ← new (move from VITE_GEMINI_API_KEY in frontend)

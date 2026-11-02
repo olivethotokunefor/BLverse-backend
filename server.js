@@ -72,8 +72,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Body parsers
-app.use(express.json());
+// Rate limiting (general — before routes)\nconst { apiGeneral } = require('./middleware/rateLimiter');\napp.use('/api', apiGeneral);\n\n// Body parsers\napp.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Static uploads
@@ -105,6 +104,7 @@ const newsRoutes = require('./routes/news');
 const aiChatRoutes = require('./routes/aiChat');
 const notificationsRoutes = require('./routes/notifications');
 const linkRoutes = require('./routes/link');
+const tmdbRoutes = require('./routes/tmdb');
 
 app.use('/api/auth', authRoutes);
 app.use('/auth', authRoutes); // backward compatible mount if frontend omits /api
@@ -122,6 +122,7 @@ app.use('/api/news', newsRoutes);
 app.use('/api/ai-chat', aiChatRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/link', linkRoutes);
+app.use('/api/tmdb', tmdbRoutes);
 
 // Health
 app.get('/', (req, res) => {
