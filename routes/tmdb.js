@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/auth');
 
-// TMDB proxy — keeps the API key server-side, out of the browser bundle
+// TMDB proxy — keeps the API key server-side, out of the browser bundle.
+// Note: TMDB search and discovery is public so visitors can browse dramas.
+
 // GET /api/tmdb/search?query=...
-router.get('/search', protect, async (req, res) => {
+router.get('/search', async (req, res) => {
   try {
     const key = process.env.TMDB_API_KEY;
     if (!key) return res.status(503).json({ message: 'TMDB not configured' });
@@ -25,7 +26,7 @@ router.get('/search', protect, async (req, res) => {
 });
 
 // GET /api/tmdb/discover — BL drama discovery (no query needed)
-router.get('/discover', protect, async (req, res) => {
+router.get('/discover', async (req, res) => {
   try {
     const key = process.env.TMDB_API_KEY;
     if (!key) return res.status(503).json({ message: 'TMDB not configured' });
@@ -43,7 +44,7 @@ router.get('/discover', protect, async (req, res) => {
 });
 
 // GET /api/tmdb/details/:id
-router.get('/details/:id', protect, async (req, res) => {
+router.get('/details/:id', async (req, res) => {
   try {
     const key = process.env.TMDB_API_KEY;
     if (!key) return res.status(503).json({ message: 'TMDB not configured' });
@@ -64,4 +65,3 @@ router.get('/details/:id', protect, async (req, res) => {
 });
 
 module.exports = router;
-
