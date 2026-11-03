@@ -7,7 +7,7 @@ const router = express.Router();
 // GET /api/tmdb/search?query=...
 router.get('/search', async (req, res) => {
   try {
-    const key = process.env.TMDB_API_KEY;
+    const key = (process.env.TMDB_API_KEY || process.env.VITE_TMDB_KEY || process.env.TMDB_KEY || '').trim();
     if (!key) return res.status(503).json({ message: 'TMDB not configured' });
 
     const query = (req.query.query || '').toString().trim();
@@ -28,7 +28,7 @@ router.get('/search', async (req, res) => {
 // GET /api/tmdb/discover — BL drama discovery (no query needed)
 router.get('/discover', async (req, res) => {
   try {
-    const key = process.env.TMDB_API_KEY;
+    const key = (process.env.TMDB_API_KEY || process.env.VITE_TMDB_KEY || process.env.TMDB_KEY || '').trim();
     if (!key) return res.status(503).json({ message: 'TMDB not configured' });
 
     const url = `https://api.themoviedb.org/3/discover/tv?api_key=${key}&with_genres=18,10749&with_original_language=th|ko|ja|zh|tl&sort_by=popularity.desc`;
@@ -46,7 +46,7 @@ router.get('/discover', async (req, res) => {
 // GET /api/tmdb/details/:id
 router.get('/details/:id', async (req, res) => {
   try {
-    const key = process.env.TMDB_API_KEY;
+    const key = (process.env.TMDB_API_KEY || process.env.VITE_TMDB_KEY || process.env.TMDB_KEY || '').trim();
     if (!key) return res.status(503).json({ message: 'TMDB not configured' });
 
     const id = parseInt(req.params.id, 10);
