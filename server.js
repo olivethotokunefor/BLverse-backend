@@ -127,7 +127,7 @@ app.use('/api/tmdb', tmdbRoutes);
 // Health
 app.get('/', (req, res) => {
   res.json({
-    status: 'running',
+    status: 'running', version: 'v1.0.3-tmdb-check',
     message: 'BLverse API is running',
     timestamp: new Date().toISOString(),
   });

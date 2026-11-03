@@ -4,11 +4,26 @@ const router = express.Router();
 // TMDB proxy — keeps the API key server-side, out of the browser bundle.
 // Note: TMDB search and discovery is public so visitors can browse dramas.
 
+function getTmdbKey() {
+  // Case-insensitive search for any env var containing 'TMDB'
+  for (const [k, v] of Object.entries(process.env)) {
+    if (/tmdb/i.test(k) && typeof v === 'string' && v.trim()) {
+      return v.trim();
+    }
+  }
+  return '';
+}
+
 // GET /api/tmdb/search?query=...
 router.get('/search', async (req, res) => {
   try {
-    const key = (process.env.TMDB_API_KEY || process.env.VITE_TMDB_KEY || process.env.TMDB_KEY || '').trim();
-    if (!key) return res.status(503).json({ message: 'TMDB not configured' });
+    const key = getTmdbKey();
+    if (!key) {
+      return res.status(503).json({
+        message: 'TMDB not configured',
+        detectedKeysWithTMDB: Object.keys(process.env).filter((k) => /tmdb/i.test(k)),
+      });
+    }
 
     const query = (req.query.query || '').toString().trim();
     if (!query) return res.json({ results: [] });
@@ -28,8 +43,13 @@ router.get('/search', async (req, res) => {
 // GET /api/tmdb/discover — BL drama discovery (no query needed)
 router.get('/discover', async (req, res) => {
   try {
-    const key = (process.env.TMDB_API_KEY || process.env.VITE_TMDB_KEY || process.env.TMDB_KEY || '').trim();
-    if (!key) return res.status(503).json({ message: 'TMDB not configured' });
+    const key = getTmdbKey();
+    if (!key) {
+      return res.status(503).json({
+        message: 'TMDB not configured',
+        detectedKeysWithTMDB: Object.keys(process.env).filter((k) => /tmdb/i.test(k)),
+      });
+    }
 
     const url = `https://api.themoviedb.org/3/discover/tv?api_key=${key}&with_genres=18,10749&with_original_language=th|ko|ja|zh|tl&sort_by=popularity.desc`;
     const upstream = await fetch(url);
@@ -46,8 +66,13 @@ router.get('/discover', async (req, res) => {
 // GET /api/tmdb/details/:id
 router.get('/details/:id', async (req, res) => {
   try {
-    const key = (process.env.TMDB_API_KEY || process.env.VITE_TMDB_KEY || process.env.TMDB_KEY || '').trim();
-    if (!key) return res.status(503).json({ message: 'TMDB not configured' });
+    const key = getTmdbKey();
+    if (!key) {
+      return res.status(503).json({
+        message: 'TMDB not configured',
+        detectedKeysWithTMDB: Object.keys(process.env).filter((k) => /tmdb/i.test(k)),
+      });
+    }
 
     const id = parseInt(req.params.id, 10);
     if (!id || isNaN(id)) return res.status(400).json({ message: 'Invalid TMDB id' });
