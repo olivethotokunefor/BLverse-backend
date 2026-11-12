@@ -77,7 +77,7 @@ router.get('/details/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id || isNaN(id)) return res.status(400).json({ message: 'Invalid TMDB id' });
 
-    const url = `https://api.themoviedb.org/3/tv/${id}?api_key=${key}&language=en-US`;
+    const url = `https://api.themoviedb.org/3/tv/${id}?api_key=${key}&language=en-US&append_to_response=aggregate_credits,credits,images,videos,recommendations,similar,external_ids,content_ratings,reviews,watch/providers&include_image_language=en,null`;
     const upstream = await fetch(url);
     if (!upstream.ok) throw new Error(`TMDB responded ${upstream.status}`);
 
